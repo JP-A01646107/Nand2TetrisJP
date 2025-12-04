@@ -1,0 +1,18 @@
+/**
+ * And gate:
+ * if (a and b) out = 1, else out = 0 
+ * Nand(a, b) = Not(a And b)
+ * Not(1 and 0 = false) = True %
+ * Not (1 and 1 = True) = False $
+ * Not( True) = False %
+ * Not (False) = True $
+ */
+CHIP And {
+    IN a, b;
+    OUT out;
+    
+    PARTS:
+    //// Replace this comment with your code.
+    Nand(a=a , b=b , out=n);
+    Not(in=n, out=out);
+}
