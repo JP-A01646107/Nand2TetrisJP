@@ -1,0 +1,94 @@
+/**
+ * CPU Hack (sin instrucciones de multiplicación/división)
+ *
+ * Pasos:
+ * 1. Ver el tipo de instrucción (A o C)
+ * 2. Calcula la salida del ALU
+ * 3. Escribe el resultado en D, A o M 
+ * 4. Ver si hay un salto (jump)
+ * 5. Se incrementa o carga el PC
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // Valor M almacenado en la ram 
+        instruction[16], // Instrucción actual que se está ejecutando
+        reset;           // Reset del pc
+
+    OUT outM[16],        // Valor que se quiere escribir en M (la ram)
+        writeM,          // Indica si se escribe en M
+        addressM[15],    // Dirección en memoria para M (sale de A)
+        pc[15];          // Dirección de la siguiente instrucción
+
+    PARTS:
+
+    // Ver que tipo de instrucción es, si A o C
+    // Si el bit 15 es 0, es un A instruction
+    // Si es 1, es un C instruction
+
+    Not(in=instruction[15], out=isA); 
+    Not(in=isA, out=isC);            
+
+    // Selecciona qué valor entra al registro A:
+    // Si la instrucción es A, es cargar la instrucción completa
+    // Si es C solo se carga outALU 
+
+    Mux16(a=outALU, b=instruction, sel=isA, out=inARegister);
+
+    // loadARegister = 1 cuando:
+    // Si es una A-instruction (isA=1), siempre carga
+    // Si es una C-instruction y instruction[5]=1 
+    Or(a=isA, b=instruction[5], out=loadARegister);
+
+    // ARegister guarda la instrucción o el resultado del ALU
+    // Además, sus bits 0..14 se exponen como addressM
+    ARegister(in=inARegister, load=loadARegister,
+            out=outARegister, out[0..14]=addressM);
+
+    // 3. Registro D
+    // loadC = 1 cuando es C-instruction y el bit 'dest' para D está activado
+    And(a=isC, b=instruction[4], out=loadC);
+    // El registro D solo puede cargar el valor del ALU
+    DRegister(in=outALU, load=loadC, out=outDRegister);
+
+    // 4. ALU
+    // Seleccionar la entrada Y de la ALU:
+    // instruction[12] = 0, se usa A
+    // instruction[12] = 1, se usa M
+    Mux16(a=outARegister, b=inM, sel=instruction[12], out=yALU);
+
+    // Ejecutar operación ALU
+    ALU(x=outDRegister, y=yALU,
+        zx=instruction[11], nx=instruction[10],
+        zy=instruction[9],  ny=instruction[8],
+        f=instruction[7],   no=instruction[6],
+        out=outALU, out=outM, zr=zr, ng=ng);
+
+    // 5. Escritura en memoria M
+    // writeM = 1 cuando:
+    // - Instrucción es C
+    // - El bit 'dest' de M está activado (instruction[3])
+    And(a=instruction[3], b=isC, out=writeM);
+
+    // 6. Lógica para los jumps
+    // Determinar el signo del resultado de la ALU
+    Or(a=ng, b=zr, out=nonPos);      // Resultado <= 0
+    Not(in=nonPos, out=pos);         // Resultado > 0
+    And(a=pos, b=instruction[0], out=matchesPositive); // JGT
+    And(a=zr,  b=instruction[1], out=matchesZero);     // JEQ
+    And(a=ng,  b=instruction[2], out=matchesNegative); // JLT
+
+    // Si se cumple cualquier condición, hacer jump
+    Or(a=matchesPositive, b=matchesZero, out=matchesNonNegative);
+    Or(a=matchesNonNegative, b=matchesNegative, out=matchesSign);
+
+    // Solo saltar en C-instruction
+    And(a=isC, b=matchesSign, out=jump);
+    Not(in=jump, out=noJump);
+
+    // 7. Contador de programa (PC)
+    // Si jump es 1, cargar PC con valor de A
+    // Si jump es 0, PC++
+    // Si reset es 1,  PC = 0
+    PC(in=outARegister, load=jump, inc=noJump, reset=reset, out[0..14]=pc);
+}
